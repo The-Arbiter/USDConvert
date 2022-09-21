@@ -9,7 +9,10 @@
 */
 
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.15;
+pragma solidity 0.6.12;
+
+import "dss-exec-lib/DssExec.sol";
+import "dss-exec-lib/DssAction.sol";
 
 // Using separate interfaces for clarity
 interface DaiLike {
@@ -17,8 +20,8 @@ interface DaiLike {
     function approve(address, uint256) external returns (bool);
 }
 
-/// @dev This is UsdcLike because we have the decimals hardcoded, so it is not all gem types
-interface UsdcLike {
+interface GemLike {
+    function decimals() external view returns (uint8);
     function balanceOf(address) external view returns (uint256);
     function transfer(address, uint256) external returns (bool);
 }
@@ -40,62 +43,57 @@ interface PsmLike {
 contract USDConvert {
   
   // ADDRESSES 
-  address PSM_USDC_A = address(0);
-  address DAI_ADDRESS = address(0);
-  address USDC_ADDRESS = address(0);
+  address constant MCD_PSM_USDC_A = 0x89B78CfA322F6C5dE0aBcEecab66Aee45393cC5A;
+  address constant MCD_PSM_GUSD_A = 0x204659B2Fd2aD5723975c362Ce2230Fba11d3900;
+  address constant MCD_PSM_PAX_A = 0x961Ae24a1Ceba861D1FDf723794f6024Dc5485Cf;
+  address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+  address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
   // MATH
   uint256 constant WAD = 10 ** 18;
 
-  constructor(
-    address PSM,
-    address USDC,
-    address DAI
-    )
-  {
-    PSM_USDC_A = PSM;
-    DAI_ADDRESS = DAI;
-    USDC_ADDRESS = USDC;
-
-  }
+  //constructor() {}
 
 
   /**
   *   Function allowing convenient disbursement of USDC
   *   TODO uint or uint256 for input type? What is convention? I see various types...
-  *   @param dst => destination address
-  *   @param amt => amount to be transferred (USDC amount)
+  *   @param psm => PSM instance we are referring to (USDC-A, GUSD-A, USDP-A. etc.)
+  *   @param gem => Collateral token address
+  *   @param dst => Destination address
+  *   @param amt => Amount to be transferred (USDC amount)
   *   returns `true` on success
   */
-  function pushUSDC(address dst, uint256 amt) external returns (bool) {
+  function sendGem(address psm, address gem, address dst, uint256 amt) external returns (bool){
+
+    // NOTE: tout is accounted for *outside* of this function to allow spells to be more understandable.
 
     // TODO this operates on assumption that 1USDC is 1 DAI - we may need to change this <--- This is OK? PSM Looks like it does too..
 
     // Get the toll out value (tout can change so we need to check it every time)
-    uint256 tout = PsmLike(PSM_USDC_A).tout();
+    
 
     // Give ourself / ensure we have enough DAI for this
-
-    // GIVE OURSELF sendPaymentFromSurplusBuffer(address(this), amt * (tout + WAD)); TODO This will be how it is actually done
-
-    // ENSURE sufficient balance
-    require(DaiLike(DAI_ADDRESS).balanceOf(msg.sender) >= amt * (tout + WAD), "Dai/insufficient-balance"); 
+    DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt * WAD);
 
     // 2) Redeem DAI for USDC via the PSM
 
     // Approve the PSM to spend our DAI
-    DaiLike(DAI_ADDRESS).approve(PSM_USDC_A, amt * (tout + WAD));
-    // Buy USDC with DAI
-    PsmLike(PSM_USDC_A).buyGem(address(this), amt * (10**6)); // NOTE: 10^6 decimals means that this is hardcoded for USDC
+    DaiLike(DAI).approve(psm, amt * WAD);
+    uint256 decimals = GemLike(gem).decimals(); //TODO inline 
+    // Buy GEM with DAI
+    PsmLike(psm).buyGem(address(this), amt * (10 ** decimals)); 
 
     // 3) Send all of our USDC to the destination
 
     // Get our current balance
-    uint256 all = UsdcLike(USDC_ADDRESS).balanceOf(address(this));
+    uint256 all = GemLike(gem).balanceOf(address(this));  //TODO inline
     // Send it to `dst`
-    UsdcLike(USDC_ADDRESS).transfer(dst,all);
+    GemLike(gem).transfer(dst,all);
     
     // Return `true` on success
     return true;
   }
+
+
 }

@@ -4,3 +4,9 @@
 [submodule "lib/solmate"]
 	path = lib/solmate
 	url = https://github.com/transmissions11/solmate
+[submodule "lib/dss-exec-lib"]
+	path = lib/dss-exec-lib
+	url = https://github.com/makerdao/dss-exec-lib
+[submodule "lib/dss-interfaces"]
+	path = lib/dss-interfaces
+	url = https://github.com/makerdao/dss-interfaces
