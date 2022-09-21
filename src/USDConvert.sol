@@ -12,9 +12,9 @@
 pragma solidity 0.6.12;
 
 import "dss-exec-lib/DssExec.sol";
-import "dss-exec-lib/DssAction.sol";
+import "dss-exec-lib/DssAction.sol"; //TODO This is where the DssExecLib function is???
 
-// Using separate interfaces for clarity
+// Using separate interfaces for clarity <=== TODO Replace these with ERC20 interfaces
 interface DaiLike {
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
@@ -42,7 +42,7 @@ interface PsmLike {
 */
 contract USDConvert {
   
-  // ADDRESSES 
+  // ADDRESSES (TODO Remove later)
   address constant MCD_PSM_USDC_A = 0x89B78CfA322F6C5dE0aBcEecab66Aee45393cC5A;
   address constant MCD_PSM_GUSD_A = 0x204659B2Fd2aD5723975c362Ce2230Fba11d3900;
   address constant MCD_PSM_PAX_A = 0x961Ae24a1Ceba861D1FDf723794f6024Dc5485Cf;
@@ -52,13 +52,10 @@ contract USDConvert {
   // MATH
   uint256 constant WAD = 10 ** 18;
 
-  //constructor() {}
-
-
   /**
   *   Function allowing convenient disbursement of USDC
   *   TODO uint or uint256 for input type? What is convention? I see various types...
-  *   @param psm => PSM instance we are referring to (USDC-A, GUSD-A, USDP-A. etc.)
+  *   @param psm => PSM instance we are referring to (USDC-A, GUSD-A, PAX-A. etc.)
   *   @param gem => Collateral token address
   *   @param dst => Destination address
   *   @param amt => Amount to be transferred (USDC amount)
@@ -67,25 +64,19 @@ contract USDConvert {
   function sendGem(address psm, address gem, address dst, uint256 amt) external returns (bool){
 
     // NOTE: tout is accounted for *outside* of this function to allow spells to be more understandable.
+    // NOTE: this operates on assumption that 1USDC is 1 DAI - we may need to change this (OK for now)
 
-    // TODO this operates on assumption that 1USDC is 1 DAI - we may need to change this <--- This is OK? PSM Looks like it does too..
-
-    // Get the toll out value (tout can change so we need to check it every time)
-    
-
-    // Give ourself / ensure we have enough DAI for this
+    // 1) Get the required DAI from the surplus buffer
     DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt * WAD);
 
     // 2) Redeem DAI for USDC via the PSM
-
     // Approve the PSM to spend our DAI
     DaiLike(DAI).approve(psm, amt * WAD);
     uint256 decimals = GemLike(gem).decimals(); //TODO inline 
     // Buy GEM with DAI
     PsmLike(psm).buyGem(address(this), amt * (10 ** decimals)); 
 
-    // 3) Send all of our USDC to the destination
-
+    // 3) Send all of our GEM to the destination
     // Get our current balance
     uint256 all = GemLike(gem).balanceOf(address(this));  //TODO inline
     // Send it to `dst`
