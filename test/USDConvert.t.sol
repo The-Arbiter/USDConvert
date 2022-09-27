@@ -49,7 +49,7 @@ contract USDConvertTest is Test {
 
 
 
-    // Probably redundtant
+    // Mainnet addresses
     address constant MCD_PSM_USDC_A = 0x89B78CfA322F6C5dE0aBcEecab66Aee45393cC5A;
     address constant MCD_PSM_GUSD_A = 0x204659B2Fd2aD5723975c362Ce2230Fba11d3900;
     address constant MCD_PSM_PAX_A = 0x961Ae24a1Ceba861D1FDf723794f6024Dc5485Cf;
@@ -68,6 +68,10 @@ contract USDConvertTest is Test {
         usdConvert = new USDConvert(); 
     }
 
+    // Filter function for fuzz testing
+    function filter() internal {
+    }
+
    
     function testSendGemUSDC() external {
         // TODO HEVM cheatcode
@@ -82,9 +86,19 @@ contract USDConvertTest is Test {
             keccak256(abi.encode(address(usdConvert), uint256(0))),
             bytes32(uint256(1))
         );
-
+        
         usdConvert.sendGem(MCD_PSM_USDC_A, USDC, address(this), 100);
+        // Check balances
         //TODO Fuzz test as well as gas route test
+    }
+
+    function testHevm() external {
+        hevm.store(
+            address(VAT),
+            keccak256(abi.encode(address(usdConvert), uint256(0))),
+            bytes32(uint256(1))
+        );
+        
     }
 
     function testSendGemPAX() external {}
