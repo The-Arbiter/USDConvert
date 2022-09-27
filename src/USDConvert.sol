@@ -29,7 +29,7 @@ pragma solidity 0.6.12;
 import "dss-exec-lib/DssExec.sol";
 import "dss-exec-lib/DssAction.sol"; //TODO This is where the DssExecLib function is???
 
-// Using separate interfaces for clarity <=== TODO Replace these with ERC20 interfaces
+// Using separate interfaces for clarity <=== TODO Replace these with ERC20 interfaces?
 interface DaiLike {
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
@@ -42,7 +42,7 @@ interface GemLike {
 }
 
 interface PsmLike {
-  function gemJoin() external view returns (address); // From Sam's Guni-Lev repo
+  function gemJoin() external view returns (address); 
   function tout() external view returns (uint256);
   function buyGem(address usr, uint256 gemAmt) external;
 }
@@ -88,11 +88,11 @@ contract USDConvert {
   function sendGem(address psm, address dst, uint256 amt) external returns (bool){
 
     // 1) Get the required DAI from the surplus buffer
-    DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt * WAD);
+    DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt * WAD); //TODO make this an internal call.
     // 2) Redeem DAI for USDC via the PSM
 
     // Get the gem address by calling 'gem' on the gemJoin contract;
-    address gem = AuthGemJoinAbstract(PsmLike(psm).gemJoin()).gem();
+    address gem = AuthGemJoinLike(PsmLike(psm).gemJoin()).gem();
 
     DaiLike(DAI).approve(psm, amt * WAD); // Approve the PSM to spend our DAI
     PsmLike(psm).buyGem(address(this), amt * (10 ** GemLike(gem).decimals())); // Buy GEM with DAI
