@@ -102,7 +102,6 @@ contract USDConvertTest is Test {
             );
             if (base.wards(target) == 1) {
                 // Found it
-                console2.log("Found it");
                 return;
             } else {
                 // Keep going after restoring the original value
@@ -167,22 +166,33 @@ contract USDConvertTest is Test {
     function testSendGemFailsWhenHigherThanSurplusBufferSize() external {
         /** 
         *   NOTE: Current SB is ~75M but sendPaymentFromSurplusBuffer
-        *   but this function can actually accrue bad debt to send money,
-        *   so we use 4B as a figure which is larger than the SB size plus
-        *   bad debt limit.
+        *   but that function can actually accrue bad debt to send money,
+        *   so we use 200M as a figure which is larger than the SB size plus
+        *   bad debt limit but less than the USDC PSM balance (currently 3.5B)
         */ 
-        uint256 amount = 3_400_000_000; 
+        uint256 amount = 200_000_000; 
         address dst = DESTINATION; 
         // Expect revert since the payment amt is larger than we can send
         vm.expectRevert(); 
         usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
     }
 
-    // FAILURE TEST - Number too high (> PSM balance)
+    // Regression test - Excessively large values should be reverted due to insufficient Gem balance
     function testSendGemFailsWhenHigherThanPsmBalance() external {
+        uint256 amount = 10_000_000_000; 
+        address dst = DESTINATION; 
+        // Expect revert since the payment amt is larger than we can send
+        vm.expectRevert(); 
+        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+        vm.expectRevert(); 
+        usdConvert.sendGem(MCD_PSM_GUSD_A, dst, amount);
+        vm.expectRevert(); 
+        usdConvert.sendGem(MCD_PSM_PAX_A, dst, amount);
     }
 
-    // DOES NOT FAIL ON 0 VALUE
+
+    // DOES NOT FAIL ON 0 VALUE <==== Include in small amount test???
+    
     // TODO separate fuzz test for small amount (such that fuzz runs * amount < surplus buffer)
     // TODO suparate fuzz test for addresses (with tiny amount)
 

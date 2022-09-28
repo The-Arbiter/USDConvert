@@ -98,21 +98,16 @@ contract USDConvert {
   function sendGem(address psm, address dst, uint256 amt) external returns (bool){
 
     // Guardrails to make sure we don't exceed the SB amount
-    require(amt < VatLike(VAT).dai(VOW) - VowLike(VOW).Sin()); // "LibDssExec/exceeds-surplus-buffer"
-
+    require(amt < (VatLike(VAT).dai(VOW) - VowLike(VOW).Sin())/RAD); // "LibDssExec/exceeds-surplus-buffer"
     // 1) Get the required DAI from the surplus buffer
     DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt);
     // 2) Redeem DAI for USDC via the PSM
-
     // Get the gem address by calling 'gem' on the gemJoin contract;
     address gem = AuthGemJoinLike(PsmLike(psm).gemJoin()).gem();
-
     DaiLike(DAI).approve(psm, amt * WAD); // Approve the PSM to spend our DAI
     PsmLike(psm).buyGem(address(this), amt * (10 ** GemLike(gem).decimals())); // Buy GEM with DAI
-
     // 3) Send all of our GEM to the destination
-    uint256 all = GemLike(gem).balanceOf(address(this));  //TODO inline // Get our current balance
-    GemLike(gem).transfer(dst,all); // Send it to `dst`
+    GemLike(gem).transfer(dst,GemLike(gem).balanceOf(address(this))); // Send it to `dst`
     // Return `true` on success
     return true;
     
