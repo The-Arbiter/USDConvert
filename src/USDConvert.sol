@@ -29,8 +29,7 @@ pragma solidity 0.6.12;
 import "dss-exec-lib/DssExec.sol";
 import "dss-exec-lib/DssAction.sol"; //TODO This is where the DssExecLib function is???
 
-// Using separate interfaces for clarity <=== TODO Replace these with ERC20 interfaces?
-interface DaiLike {
+interface DaiLike { // Dai is not DSToken (TODO confirm)
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
 }
