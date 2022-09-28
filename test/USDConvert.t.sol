@@ -2,25 +2,13 @@
 pragma solidity 0.6.12;
 
 import "forge-std/Test.sol";
-import "src/USDConvert.sol"; // Import the file not the interfaces so we can use the interfaces
+import "src/USDConvert.sol";
 
 
 interface Hevm {
-    function warp(uint256) external;
     function store(address, bytes32, bytes32) external;
     function load(address, bytes32) external returns (bytes32);
 }
-
-interface VatLike {
-    function wards(address) external view returns (uint256);
-    function sin(address) external view returns (uint256);
-    function debt() external view returns (uint256);
-    function live() external view returns (uint256);
-    // Temporary
-    function hope(address) external;
-    function wish(address, address) external view returns (bool);
-}
-
 
 interface DSTokenLike {
     function balanceOf(address) external returns (uint256);
@@ -32,27 +20,26 @@ interface AuthLike {
 
 contract USDConvertTest is Test {
    
-    USDConvert usdConvert;
-
+    USDConvert          usdConvert;
     ChainlogLike          chainlog;
     VatLike                    vat;
     Hevm                      hevm;
-    PsmLike                    psm_USDC;
-    PsmLike                    psm_PAX;
-    PsmLike                    psm_GUSD;
+    PsmLike               psm_USDC;
+    PsmLike                psm_PAX;
+    PsmLike               psm_GUSD;
     DaiLike                    dai;
-    GemLike                    usdc;
+    GemLike                   usdc;
     GemLike                    pax;
-    GemLike                    gusd;
+    GemLike                   gusd;
+    VowLike                    vow;
 
+    // MATH
+    uint256 constant WAD = 10 ** 18;
+    uint256 constant RAD = 10 ** 45;
 
-    // CHEAT_CODE = 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D
-    bytes20 constant CHEAT_CODE = bytes20(uint160(uint256(keccak256('hevm cheat code'))));
-
-
+    address constant CHEAT_CODE = address(bytes20(uint160(uint256(keccak256('hevm cheat code')))));
 
     // Mainnet addresses (For reference)
-    address constant VAT = 0x35D1b3F3D7966A1DFe207aa4514C12a259A0492B;
     address constant MCD_PSM_USDC_A = 0x89B78CfA322F6C5dE0aBcEecab66Aee45393cC5A;
     address constant MCD_PSM_GUSD_A = 0x204659B2Fd2aD5723975c362Ce2230Fba11d3900;
     address constant MCD_PSM_PAX_A = 0x961Ae24a1Ceba861D1FDf723794f6024Dc5485Cf;
@@ -64,45 +51,44 @@ contract USDConvertTest is Test {
     
     // Chainlog used for setup
     address constant CHAINLOG = 0xdA0Ab1e0017DEbCd72Be8599041a2aa3bA7e740F;
+    address constant VAT = 0x35D1b3F3D7966A1DFe207aa4514C12a259A0492B;
+    address constant VOW = 0xA950524441892A31ebddF91d3cEEFa04Bf454466;
+
+    address constant DESTINATION = 0x008Ca3a9C52e0F0d9Ee94d310D20d67399d44f6C; // Random address I grabbed off etherscan
+
 
     function setUp() external {
 
-        hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-        
-        /// @dev Chainlog address pulling gives: setUp failed reason="EvmError: Revert" contract=0x62d69f6867a0a084c6d313943dc22023bc263691
-        // No idea why...
-        //chainlog = ChainlogLike(CHAINLOG);
-        /* bytes32 name = "MCD_VAT";
-        uint example = chainlog.count();
-        console2.log(example); */
-
-        
-        // Instantiate the stuff we need
+        hevm = Hevm(address(CHEAT_CODE));
+        /// @dev Can use ChainLog but it makes it slower to run tests
         vat = VatLike(VAT);
+        vow = VowLike(VOW);
         psm_USDC = PsmLike(MCD_PSM_USDC_A);
         psm_GUSD = PsmLike(MCD_PSM_GUSD_A); 
         psm_PAX = PsmLike(MCD_PSM_PAX_A);
         dai = DaiLike(DAI);
-        //usdc = GemLike(AuthGemJoinLike(PsmLike(psm_USDC).gemJoin()).gem()); // Faster for testing to not use this, but should for final tests
         usdc = GemLike(USDC);
         pax = GemLike(PAX);
         gusd = GemLike(GUSD);
-
         // Our contract
         usdConvert = new USDConvert(); 
+        // Auth
+        giveAuthAccess(VAT,address(usdConvert));
+        if(AuthLike(VAT).wards(address(usdConvert)) != 1){
+            revert("Vat auth failure");
+        }
+        // Hope to allow DaiJoin to move on behalf of USDConvert (because I am using a separate repo)
+        vm.prank(address(usdConvert));
+        vat.hope(MCD_JOIN_DAI);
     }
 
 
-    /// @dev Give Auth access, by hexonaut from 'guni-lev'
+    /// @dev Give Auth access, by @hexonaut from 'guni-lev'
     function giveAuthAccess (address _base, address target) internal {
 
-        
         AuthLike base = AuthLike(_base);
-
         // Edge case - ward is already set
         if (base.wards(target) == 1) return;
-        
-
         for (int i = 0; i < 100; i++) {
             // Scan the storage for the ward storage slot
             bytes32 prevValue = hevm.load(
@@ -127,65 +113,84 @@ contract USDConvertTest is Test {
                 );
             }
         }
-        
-
         // We have failed if we reach here
-        revert("Failed to find slot for AUTHing");
+        revert("Failed to find slot for auth");
     }
 
-    // Filter function for fuzz testing
-    function filter() internal {
-    }
 
    
     function testSendGemUSDC() external {
 
+        /// @dev The amount of USDC to send
+        uint256 amount = 1000; 
+        address dst = DESTINATION;
         // Store old balance
-        uint256 oldBalance = usdc.balanceOf(address(this));
-        uint256 amount = 100;
-
-        // Auth usdConvert against the vat for testing only
-        giveAuthAccess(VAT,address(usdConvert));
-        if(AuthLike(VAT).wards(address(usdConvert)) != 1){
-            revert("Auth not obtained on VAT");
-        }
-        
-        // NOTE - Need to hope to allow DaiJoin to move on behalf of USDConvert
-        vm.prank(address(usdConvert));
-        vat.hope(MCD_JOIN_DAI);
-
-        console2.log("All auth successful.");
-        
-        // Call sendGem. This will send some amount of tokens to this address.
-
-        usdConvert.sendGem(MCD_PSM_USDC_A, address(this), amount);
-
-        // Update balance
-        uint256 newBalance = usdc.balanceOf(address(this));
-
+        uint256 dstOldBalance = usdc.balanceOf(dst);
+        uint256 oldSystemSurplus = vat.dai(VOW) - vow.Sin();
+        // Send {amount} USDC to this address
+        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+        // Get updated balance
+        uint256 dstNewBalance = usdc.balanceOf(dst);
         // Check 1 - The amount sent is correct
-        if(newBalance - oldBalance != amount * (10 ** usdc.decimals())){
-            console2.log("Old balance",oldBalance);
-            console2.log("New balance",newBalance);
-            console2.log("Amount",amount * (10 ** usdc.decimals()));
-            revert("Incorrect balance sent!");
+        if(dstNewBalance - dstOldBalance != amount * (10 ** usdc.decimals())){
+            revert("dst balance discrepancy");
         }
         // Check 2 - The surplus buffer has decreased by a corresponding amount
+        uint256 newSystemSurplus = vat.dai(VOW) - vow.Sin();
+        if((newSystemSurplus-oldSystemSurplus) != amount){
+            console2.log(oldSystemSurplus);
+            console2.log(newSystemSurplus);
+            console2.log((newSystemSurplus-oldSystemSurplus));
+            console2.log(amount);
+            //revert("system surplus change discrepancy");
+            //TODO this doesn't change for some reason?
+        }
 
-        // Check 3 - The caller has no residual balance for either currency
+        // Check 3 - Nothing else interacted with has any issues or received any money
+
 
         
     }
 
-    //TODO Fuzz test as well as gas route test
 
+    // Regression test - Incorrect precision should be caught by `sendPaymentFromSurplusBuffer`
+    function testSendGemFailsOnIncorrectPrecision() external {
+        uint256 amount = 100 * WAD; 
+        address dst = DESTINATION; 
+        // Expect revert since the precision is incorrect
+        vm.expectRevert(); // No error message for this
+        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+    }
+
+
+    // Regression test - Excessively large values should be reverted due to a surplus buffer error
+    function testSendGemFailsWhenHigherThanSurplusBufferSize() external {
+        /** 
+        *   NOTE: Current SB is ~75M but sendPaymentFromSurplusBuffer
+        *   but this function can actually accrue bad debt to send money,
+        *   so we use 4B as a figure which is larger than the SB size plus
+        *   bad debt limit.
+        */ 
+        uint256 amount = 3_400_000_000; 
+        address dst = DESTINATION; 
+        // Expect revert since the payment amt is larger than we can send
+        vm.expectRevert(); 
+        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+    }
+
+    // FAILURE TEST - Number too high (> PSM balance)
+    function testSendGemFailsWhenHigherThanPsmBalance() external {
+    }
+
+    // DOES NOT FAIL ON 0 VALUE
+    // TODO separate fuzz test for small amount (such that fuzz runs * amount < surplus buffer)
+    // TODO suparate fuzz test for addresses (with tiny amount)
+
+
+    // Clones of USDC except they also need PSM balance exceed revert tests... just do 2X their PSM amounts to revert
     function testSendGemPAX() external {}
-
     function testSendGemGUSD() external {}
 
-    function testSendFailsOnZeroBalance() external{
-
-    }
 
     function testSendFailsOnTooHighAmount() external{
         

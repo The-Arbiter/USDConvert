@@ -49,6 +49,16 @@ interface AuthGemJoinLike {
     function gem() external view returns (address);
 }
 
+interface VatLike {
+    function dai(address) external view returns (uint256);
+    // Hope, since this is a separate repo to dss-exec-lib (Can remove if not needed)
+    function hope(address) external;
+}
+
+interface VowLike {
+    function Sin() external returns (uint256);
+}
+
 
 /** 
 *   @title USDConvert will do the following
@@ -66,13 +76,15 @@ contract USDConvert {
   address constant MCD_PSM_PAX_A = 0x961Ae24a1Ceba861D1FDf723794f6024Dc5485Cf;
   address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
   address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+  address constant VAT = 0x35D1b3F3D7966A1DFe207aa4514C12a259A0492B;
+  address constant VOW = 0xA950524441892A31ebddF91d3cEEFa04Bf454466;
 
   // NOTE: tout is accounted for *outside* of this function to allow spells to be more understandable.
   // NOTE: this operates on assumption that 1USDC is 1 DAI - we may need to change this (OK for now)
 
-
   // MATH
   uint256 constant WAD = 10 ** 18;
+  uint256 constant RAD = 10 ** 45;
 
   /**
   *   Function allowing convenient disbursement of USDC
@@ -81,9 +93,12 @@ contract USDConvert {
   *   gem => Collateral token address (Derived from PSM)
   *   @param dst => Destination address
   *   @param amt => Amount to be transferred (USDC amount)
-  *   returns `true` on success
+  *   returns the amount of USDC sent to `dst` (which may not be the same as `amt`)
   */
   function sendGem(address psm, address dst, uint256 amt) external returns (bool){
+
+    // Guardrails to make sure we don't exceed the SB amount
+    require(amt < VatLike(VAT).dai(VOW) - VowLike(VOW).Sin()); // "LibDssExec/exceeds-surplus-buffer"
 
     // 1) Get the required DAI from the surplus buffer
     DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt);
