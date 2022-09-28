@@ -26,8 +26,7 @@
 
 pragma solidity 0.6.12;
 
-import "dss-exec-lib/DssExec.sol";
-import "dss-exec-lib/DssAction.sol"; //TODO This is where the DssExecLib function is???
+import "dss-exec-lib/DssExecLib.sol"; // For sendPaymentFromSurplusBuffer
 
 interface DaiLike { // Dai is not DSToken (TODO confirm)
     function balanceOf(address) external view returns (uint256);
@@ -87,7 +86,7 @@ contract USDConvert {
   function sendGem(address psm, address dst, uint256 amt) external returns (bool){
 
     // 1) Get the required DAI from the surplus buffer
-    DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt * WAD); //TODO make this an internal call.
+    DssExecLib.sendPaymentFromSurplusBuffer(address(this), amt);
     // 2) Redeem DAI for USDC via the PSM
 
     // Get the gem address by calling 'gem' on the gemJoin contract;

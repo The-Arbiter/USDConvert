@@ -11,16 +11,14 @@ interface Hevm {
     function load(address, bytes32) external returns (bytes32);
 }
 
-interface ChainlogLike {
-    function count() external view returns (uint);
-    function getAddress(bytes32) external view returns (address);
-}
-
 interface VatLike {
     function wards(address) external view returns (uint256);
     function sin(address) external view returns (uint256);
     function debt() external view returns (uint256);
     function live() external view returns (uint256);
+    // Temporary
+    function hope(address) external;
+    function wish(address, address) external view returns (bool);
 }
 
 
@@ -62,6 +60,7 @@ contract USDConvertTest is Test {
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant PAX = 0x8E870D67F660D95d5be530380D0eC0bd388289E1;
     address constant GUSD = 0x056Fd409E1d7A124BD7017459dFEa2F387b6d5Cd;
+    address constant MCD_JOIN_DAI = 0x9759A6Ac90977b93B58547b4A71c78317f391A28;
     
     // Chainlog used for setup
     address constant CHAINLOG = 0xdA0Ab1e0017DEbCd72Be8599041a2aa3bA7e740F;
@@ -84,7 +83,7 @@ contract USDConvertTest is Test {
         psm_GUSD = PsmLike(MCD_PSM_GUSD_A); 
         psm_PAX = PsmLike(MCD_PSM_PAX_A);
         dai = DaiLike(DAI);
-        //usdc = GemLike(AuthGemJoinLike(PsmLike(psm_USDC).gemJoin()).gem()); TODO breaks
+        //usdc = GemLike(AuthGemJoinLike(PsmLike(psm_USDC).gemJoin()).gem()); // Faster for testing to not use this, but should for final tests
         usdc = GemLike(USDC);
         pax = GemLike(PAX);
         gusd = GemLike(GUSD);
@@ -96,10 +95,13 @@ contract USDConvertTest is Test {
 
     /// @dev Give Auth access, by hexonaut from 'guni-lev'
     function giveAuthAccess (address _base, address target) internal {
+
+        
         AuthLike base = AuthLike(_base);
 
         // Edge case - ward is already set
         if (base.wards(target) == 1) return;
+        
 
         for (int i = 0; i < 100; i++) {
             // Scan the storage for the ward storage slot
@@ -114,6 +116,7 @@ contract USDConvertTest is Test {
             );
             if (base.wards(target) == 1) {
                 // Found it
+                console2.log("Found it");
                 return;
             } else {
                 // Keep going after restoring the original value
@@ -124,9 +127,10 @@ contract USDConvertTest is Test {
                 );
             }
         }
+        
 
         // We have failed if we reach here
-        assertTrue(false);
+        revert("Failed to find slot for AUTHing");
     }
 
     // Filter function for fuzz testing
@@ -135,24 +139,45 @@ contract USDConvertTest is Test {
 
    
     function testSendGemUSDC() external {
-        // TODO HEVM cheatcode
-        console2.log("Starting");
+
+        // Store old balance
+        uint256 oldBalance = usdc.balanceOf(address(this));
+        uint256 amount = 100;
 
         // Auth usdConvert against the vat for testing only
-        giveAuthAccess(address(vat),address(usdConvert));
-        usdConvert.sendGem(MCD_PSM_USDC_A, address(this), 100);
-        // Check balances
-        //TODO Fuzz test as well as gas route test
-    }
+        giveAuthAccess(VAT,address(usdConvert));
+        if(AuthLike(VAT).wards(address(usdConvert)) != 1){
+            revert("Auth not obtained on VAT");
+        }
+        
+        // NOTE - Need to hope to allow DaiJoin to move on behalf of USDConvert
+        vm.prank(address(usdConvert));
+        vat.hope(MCD_JOIN_DAI);
 
-    function testHevm() external {
-        hevm.store(
-            address(VAT),
-            keccak256(abi.encode(address(usdConvert), uint256(0))),
-            bytes32(uint256(1))
-        );
+        console2.log("All auth successful.");
+        
+        // Call sendGem. This will send some amount of tokens to this address.
+
+        usdConvert.sendGem(MCD_PSM_USDC_A, address(this), amount);
+
+        // Update balance
+        uint256 newBalance = usdc.balanceOf(address(this));
+
+        // Check 1 - The amount sent is correct
+        if(newBalance - oldBalance != amount * (10 ** usdc.decimals())){
+            console2.log("Old balance",oldBalance);
+            console2.log("New balance",newBalance);
+            console2.log("Amount",amount * (10 ** usdc.decimals()));
+            revert("Incorrect balance sent!");
+        }
+        // Check 2 - The surplus buffer has decreased by a corresponding amount
+
+        // Check 3 - The caller has no residual balance for either currency
+
         
     }
+
+    //TODO Fuzz test as well as gas route test
 
     function testSendGemPAX() external {}
 
