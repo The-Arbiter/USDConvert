@@ -9,7 +9,7 @@ auto_detect_solc = false
 optimizer_runs = 1_000
 
 [fuzz]
-runs = 1_000
+runs = 100
 
 # Extreme Fuzzing CI Profile :P
 [profile.fuzz.ci]

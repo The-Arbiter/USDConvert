@@ -49,12 +49,17 @@ contract USDConvertTest is Test {
     address constant GUSD = 0x056Fd409E1d7A124BD7017459dFEa2F387b6d5Cd;
     address constant MCD_JOIN_DAI = 0x9759A6Ac90977b93B58547b4A71c78317f391A28;
     
-    // Chainlog used for setup
-    address constant CHAINLOG = 0xdA0Ab1e0017DEbCd72Be8599041a2aa3bA7e740F;
+    // Core components
+    //address constant CHAINLOG = 0xdA0Ab1e0017DEbCd72Be8599041a2aa3bA7e740F;
     address constant VAT = 0x35D1b3F3D7966A1DFe207aa4514C12a259A0492B;
     address constant VOW = 0xA950524441892A31ebddF91d3cEEFa04Bf454466;
 
-    address constant DESTINATION = 0x008Ca3a9C52e0F0d9Ee94d310D20d67399d44f6C; // Random address I grabbed off etherscan
+    /// @dev Testing params for non-fuzz tests
+    uint256 constant AMT = 1000; // Fixed amount for testing
+    address constant DST = 0x008Ca3a9C52e0F0d9Ee94d310D20d67399d44f6C; // Random address I grabbed off etherscan
+
+    /// @dev Make this `true` to enable fuzz testing
+    bool constant RUN_FUZZ_TESTS = true;
 
 
     function setUp() external {
@@ -117,93 +122,139 @@ contract USDConvertTest is Test {
     }
 
 
-   
+    // Fixed parameter test for USDC
     function testSendGemUSDC() external {
 
-        /// @dev The amount of USDC to send
-        uint256 amount = 1000; 
-        address dst = DESTINATION;
         // Store old balance
-        uint256 dstOldBalance = usdc.balanceOf(dst);
-        uint256 oldSystemSurplus = vat.dai(VOW) - vow.Sin();
+        uint256 dstOldBalance = usdc.balanceOf(DST);
         // Send {amount} USDC to this address
-        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
-        // Get updated balance
-        uint256 dstNewBalance = usdc.balanceOf(dst);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, AMT);
         // Check 1 - The amount sent is correct
-        if(dstNewBalance - dstOldBalance != amount * (10 ** usdc.decimals())){
+        if(usdc.balanceOf(DST) - dstOldBalance != AMT * (10 ** usdc.decimals())){
             revert("dst balance discrepancy");
         }
-        // Check 2 - The surplus buffer has decreased by a corresponding amount
-        uint256 newSystemSurplus = vat.dai(VOW) - vow.Sin();
-        if((newSystemSurplus-oldSystemSurplus) != amount){
-            console2.log(oldSystemSurplus);
-            console2.log(newSystemSurplus);
-            console2.log((newSystemSurplus-oldSystemSurplus));
-            console2.log(amount);
-            //revert("system surplus change discrepancy");
-            //TODO this doesn't change for some reason?
+        /**  
+        *   @dev The surplus buffer doesn't change unless we call `heal`.
+        *   Since the DAI is now in the PSM (and not destroyed) the accounting doesn't change.
+        *   Therefore we don't need to check for a change in system surplus.
+        */
+        // Check 2 - There is no leftover approval amount
+        if(usdc.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
         }
+    }
 
-        // Check 3 - Nothing else interacted with has any issues or received any money
+    // Fixed parameter test for GUSD
+    function testSendGemGUSD() external {
+        uint256 dstOldBalance = gusd.balanceOf(DST);
+        usdConvert.sendGem(MCD_PSM_GUSD_A, DST, AMT);
+        if(gusd.balanceOf(DST) - dstOldBalance != AMT * (10 ** gusd.decimals())){
+            revert("dst balance discrepancy");
+        }
+        if(gusd.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
+        }
+    }
+
+    // Fixed parameter test for PAX
+    function testSendGemPAX() external {
+        uint256 dstOldBalance = pax.balanceOf(DST);
+        usdConvert.sendGem(MCD_PSM_PAX_A, DST, AMT);
+        if(pax.balanceOf(DST) - dstOldBalance != AMT * (10 ** pax.decimals())){
+            revert("dst balance discrepancy");
+        }
+        if(pax.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
+        }
+    }
 
 
-        
+    // Zero value edge case (USDC chosen arbitrarily)
+    function testSendGemZeroValue() external {
+        uint256 ZERO = 0;
+        uint256 dstOldBalance = usdc.balanceOf(DST);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, ZERO);
+        if(usdc.balanceOf(DST) - dstOldBalance != ZERO){
+            revert("dst balance discrepancy");
+        }
+        if(usdc.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
+        }
     }
 
 
     // Regression test - Incorrect precision should be caught by `sendPaymentFromSurplusBuffer`
     function testSendGemFailsOnIncorrectPrecision() external {
         uint256 amount = 100 * WAD; 
-        address dst = DESTINATION; 
         // Expect revert since the precision is incorrect
         vm.expectRevert(); // No error message for this
-        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, amount);
     }
 
 
     // Regression test - Excessively large values should be reverted due to a surplus buffer error
     function testSendGemFailsWhenHigherThanSurplusBufferSize() external {
-        /** 
+        /*
         *   NOTE: Current SB is ~75M but sendPaymentFromSurplusBuffer
         *   but that function can actually accrue bad debt to send money,
         *   so we use 200M as a figure which is larger than the SB size plus
         *   bad debt limit but less than the USDC PSM balance (currently 3.5B)
         */ 
-        uint256 amount = 200_000_000; 
-        address dst = DESTINATION; 
+        uint256 AMOUNT_GT_SURPLUSBUFFER = 200_000_000; 
         // Expect revert since the payment amt is larger than we can send
         vm.expectRevert(); 
-        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, AMOUNT_GT_SURPLUSBUFFER);
     }
 
     // Regression test - Excessively large values should be reverted due to insufficient Gem balance
     function testSendGemFailsWhenHigherThanPsmBalance() external {
-        uint256 amount = 10_000_000_000; 
-        address dst = DESTINATION; 
-        // Expect revert since the payment amt is larger than we can send
+        uint256 AMOUNT_GT_PSM_BALANCE = 10_000_000_000; 
+        // Expect revert for all 3 gem types since the payment amount is larger than the funds the PSM has available
         vm.expectRevert(); 
-        usdConvert.sendGem(MCD_PSM_USDC_A, dst, amount);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, AMOUNT_GT_PSM_BALANCE);
         vm.expectRevert(); 
-        usdConvert.sendGem(MCD_PSM_GUSD_A, dst, amount);
+        usdConvert.sendGem(MCD_PSM_GUSD_A, DST, AMOUNT_GT_PSM_BALANCE);
         vm.expectRevert(); 
-        usdConvert.sendGem(MCD_PSM_PAX_A, dst, amount);
+        usdConvert.sendGem(MCD_PSM_PAX_A, DST, AMOUNT_GT_PSM_BALANCE);
     }
 
+    /// @dev FUZZ TESTS - Foundry may not do this for integration testing...
 
-    // DOES NOT FAIL ON 0 VALUE <==== Include in small amount test???
+    // Optional fuzz tests for amounts less than 1M
+    function testSendGemFuzzAmounts(uint24 amount) external{
+        if(!RUN_FUZZ_TESTS){
+            return;
+        }
+        // Assuming 1000 fuzz runs, make sure that we don't run out of funds
+        vm.assume(amount < 1_000_000);
+        console2.log("Fuzzing with amount:",amount);
+        uint256 dstOldBalance = usdc.balanceOf(DST);
+        usdConvert.sendGem(MCD_PSM_USDC_A, DST, amount);
+        if(usdc.balanceOf(DST) - dstOldBalance != amount * (10 ** usdc.decimals())){
+            revert("dst balance discrepancy");
+        }
+        if(usdc.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
+        }
+    }
     
-    // TODO separate fuzz test for small amount (such that fuzz runs * amount < surplus buffer)
-    // TODO suparate fuzz test for addresses (with tiny amount)
 
-
-    // Clones of USDC except they also need PSM balance exceed revert tests... just do 2X their PSM amounts to revert
-    function testSendGemPAX() external {}
-    function testSendGemGUSD() external {}
-
-
-    function testSendFailsOnTooHighAmount() external{
-        
+    // Optional fuzz tests for addresses
+    function testSendGemFuzzAddresses(address dst) external{
+        if(!RUN_FUZZ_TESTS){
+            return;
+        }
+        // Assuming 1000 fuzz runs, make sure that we don't run out of funds
+        console2.log("Fuzzing with address:",dst);
+        uint256 dstOldBalance = usdc.balanceOf(dst);
+        usdConvert.sendGem(MCD_PSM_USDC_A, dst, AMT);
+        if(usdc.balanceOf(dst) - dstOldBalance != AMT * (10 ** usdc.decimals())){
+            revert("dst balance discrepancy");
+        }
+        if(usdc.allowance(address(this),address(usdConvert))!=0){
+            revert("nonzero allowance leftover");
+        }
     }
+
     
 }
