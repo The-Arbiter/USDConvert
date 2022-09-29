@@ -67,7 +67,7 @@ interface VowLike {
 *   0) Checks for precision and value mistakes
 *   1) Send DAI from the surplus buffer to the current address
 *   2) Sells DAI for some `amt` of underlying Gem token via the PSM's BuyGem function
-*   3) Sends all purchased Gem to an address
+*   3) Sends the `amt` of Gem to an address
 *   
 */
 contract USDConvert {
@@ -91,7 +91,7 @@ contract USDConvert {
   function vat()        public view returns (address) { return getChangelogAddress("MCD_VAT"); }
   function vow()        public view returns (address) { return getChangelogAddress("MCD_VOW"); }
 
-
+  // NOTE: This function may require adding `GemLike`, `DaiLike`, `AuthGemJoinLike` and `PsmLike` to DssExecLib
   // NOTE: tout fees are accounted for *outside* of this function to allow spells to be more readable
   // NOTE: this operates on assumption that 1 Gem is 1 DAI - we may need to change this in the future (OK for now)
   /**
@@ -107,18 +107,19 @@ contract USDConvert {
     address gem = AuthGemJoinLike(PsmLike(_psm).gemJoin()).gem();
     DaiLike(dai()).approve(_psm, _amt * WAD); 
     PsmLike(_psm).buyGem(address(this), _amt * (10 ** GemLike(gem).decimals())); 
-    GemLike(gem).transfer(_dst,GemLike(gem).balanceOf(address(this))); //TODO this can be used to attack this
+    GemLike(gem).transfer(_dst, _amt * (10 ** GemLike(gem).decimals()));
     return true;
   }
 
-  /**
+
+  /*
   Security analysis:
-  - BuyGem may break if 1:1 variance breaks
+  - BuyGem may break if 1:1 variance breaks (LOW)
   - Guardrails for precision and > SB size are in place
   - Malicious PSM address pointing to a malicious gemJoin would allow for RCE style attack:
     We can derive the address 'gem' by using the interface AuthGemJoin on the return from GemJoin 
     and then calling Gem on that. That relies on the usage of the spell being used VERY carefully 
-    or malicious calls can be made.
+    or malicious calls can be made. (LOW)
   */
 
 }
