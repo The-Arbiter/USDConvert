@@ -59,7 +59,7 @@ contract USDConvertTest is Test {
     address constant DST = 0x008Ca3a9C52e0F0d9Ee94d310D20d67399d44f6C; // Random address I grabbed off etherscan
 
     /// @dev Make this `true` to enable fuzz testing
-    bool constant RUN_FUZZ_TESTS = true;
+    bool constant RUN_FUZZ_TESTS = false;
 
 
     function setUp() external {

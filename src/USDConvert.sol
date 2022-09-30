@@ -102,13 +102,18 @@ contract USDConvert {
         @return              Returns true on success
   */
   function sendGem(address _psm, address _dst, uint256 _amt) external returns (bool){
-    require(_amt < (VatLike(vat()).dai(vow()) - VowLike(vow()).Sin())/RAD); // "LibDssExec/exceeds-surplus-buffer"
+    require(_amt < getSurplusBufferSize()); // "LibDssExec/exceeds-surplus-buffer"
     DssExecLib.sendPaymentFromSurplusBuffer(address(this), _amt);
     address gem = AuthGemJoinLike(PsmLike(_psm).gemJoin()).gem();
     DaiLike(dai()).approve(_psm, _amt * WAD); 
     PsmLike(_psm).buyGem(address(this), _amt * (10 ** GemLike(gem).decimals())); 
     GemLike(gem).transfer(_dst, _amt * (10 ** GemLike(gem).decimals()));
     return true;
+  }
+
+  /// @dev Helper function
+  function getSurplusBufferSize() public returns (uint256){
+    return (VatLike(vat()).dai(vow()) - VowLike(vow()).Sin())/RAD;
   }
 
 
